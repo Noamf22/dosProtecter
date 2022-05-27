@@ -3,7 +3,10 @@ from dosprotecter.limitLearner import *
 from dosprotecter.constants import *
 from dosprotecter.rateCounter import *
 import smtplib
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
+from urllib.request import urlopen
+from json import load
+
 
 class DosProtecter:
     def __init__(self,seed_rate,jail_time = JAIL_TIME,dos_trshould = DOS_TRESHOULD,
@@ -40,12 +43,13 @@ class DosProtecter:
     def add_report(self,ip):
         self.counter += 1
         
-        self.quarentine_lst.append(len(self.in_quarantine))
+        
 
         if ip in self.in_quarantine:
             if self.jail_times[ip] < time.time() - self.jail_time:
                 self.in_quarantine.remove(ip)
                 self.ips_behaviors[ip] = rateCounter(self.time_frame)
+            self.quarentine_lst.append(len(self.in_quarantine))
             return
         if not ip in self.ips_behaviors:
             self.ips_behaviors[ip] = rateCounter(self.time_frame)
@@ -60,10 +64,14 @@ class DosProtecter:
         elif time.time() - self.ips_behaviors[ip].start_time > self.time_frame:
             self.limit_learner.add_report(events,min(0.1,(1 / self.counter)))
 
-        if len(self.in_quarantine) > self.ddos_treshould:
+        if len(self.in_quarantine) > self.ddos_treshould and not self.in_ddos_mode:
             self.ddos_mode_on()
             if self.email_service and time.time() > self.last_email_time:
                 self.send_email()
+        
+        self.quarentine_lst.append(len(self.in_quarantine))
+
+        return ip in self.in_quarantine
             
     
     def ddos_mode_on(self):
@@ -79,6 +87,29 @@ class DosProtecter:
             return
         self.limit_learner.normal_rate = self.initial_limit
         self.in_ddos_mode = False
+    
+
+    def get_ips_regions(self):
+        regions = [self.get_ip_region(ip) for ip in self.in_quarantine]
+        print(regions)
+        return regions
+    
+    def get_ip_region(self, addr=''):
+        if addr == '':
+            url = 'https://ipinfo.io/json'
+        else:
+            url = 'https://ipinfo.io/' + addr + '/json'
+        res = urlopen(url)
+        #response from url(if res==None then check connection)
+        data = load(res)
+        #will load the json response into data
+        if 'country' in data:
+            return data['country']
+        else:
+            return 'Unknown'
+        
+
+    
 
 
     def send_email(self):
@@ -88,7 +119,7 @@ class DosProtecter:
         sent_from = gmail_user
         to = [self.mail]
         subject = "Youre being ddos attacked"
-        body = 'Youre being ddos attacked'
+        body = f'Youre being ddos attacked the suspicious ips regions are: {self.get_ips_regions()}'
 
         message = """From: %s\nTo: %s\nSubject: %s\n\n%s
     """ % (sent_from, ", ".join(to), subject, body)
